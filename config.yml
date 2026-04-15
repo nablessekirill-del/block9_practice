@@ -1,0 +1,4 @@
+app_name: "Консольный магазин"
+currency: "руб."
+max_products: 100
+log_level: "debug"

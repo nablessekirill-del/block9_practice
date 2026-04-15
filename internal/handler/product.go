@@ -5,15 +5,21 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+
+	"github.com/sirupsen/logrus"
 )
 
+var count int = 0
+
 type ProductHandler struct {
-	store *domain.Store
+	store  *domain.Store
+	logger *logrus.Logger
 }
 
-func New(store *domain.Store) *ProductHandler {
+func New(store *domain.Store, l *logrus.Logger) *ProductHandler {
 	return &ProductHandler{
-		store: store,
+		store:  store,
+		logger: l,
 	}
 }
 
@@ -30,8 +36,8 @@ func (h *ProductHandler) List(w http.ResponseWriter, r *http.Request) {
 			fmt.Println("Failed to write http responce:", err)
 			return
 		}*/
-
-	list := h.store.List("")
+	query := r.URL.Query().Get("search")
+	list := h.store.List(query)
 
 	writeJSON(w, http.StatusOK, list)
 }
@@ -52,17 +58,26 @@ func (h *ProductHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProductHandler) Create(w http.ResponseWriter, r *http.Request) {
-	var product domain.Product
-	if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
-		writeError(w, http.StatusBadRequest, "Не получилось прочитать данные из запроса")
-		return
+	if count < 5 {
+		var product domain.Product
+		if err := json.NewDecoder(r.Body).Decode(&product); err != nil {
+			writeError(w, http.StatusBadRequest, "Не получилось прочитать данные из запроса")
+			return
+		}
+		if err := product.ValidateForCreate(); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			h.logger.Error(err.Error())
+			return
+		}
+		product1 := h.store.Create(product)
+		h.logger.Info("Добавлен продукт:", product1.Name, "Цена:", product1.Price)
+
+		writeJSON(w, http.StatusCreated, product1)
+		count++
+		h.logger.Debug("Количество продуктов:", count)
+	} else {
+		h.logger.Warn("Превышен лимит товаров Т_Т")
 	}
-	if err := product.ValidateForCreate(); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	product1 := h.store.Create(product)
-	writeJSON(w, http.StatusCreated, product1)
 
 }
 
@@ -96,6 +111,7 @@ func (h *ProductHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	h.store.Delete(id)
 	writeJSON(w, http.StatusNoContent, "")
+	count--
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
